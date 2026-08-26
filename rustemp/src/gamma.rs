@@ -1,6 +1,7 @@
 use wllib::error::SysError;
 
 use crate::error::AppError;
+use crate::state::Config;
 
 #[link(name = "c")]
 unsafe extern "C" {
@@ -88,8 +89,8 @@ fn kelvin_to_rgb(kelvin: f64) -> (f64, f64, f64) {
   (r, g, b)
 }
 
-pub fn get_gamma_table_fd(size: usize, temp_kelvin: f64) -> Result<i32, AppError> {
-  let (r_factor, g_factor, b_factor) = kelvin_to_rgb(temp_kelvin);
+pub fn get_gamma_table_fd(size: usize, config: &Config) -> Result<i32, AppError> {
+  let (r_factor, g_factor, b_factor) = kelvin_to_rgb(config.temp);
   let fd = create_memfd(size)?;
   let (mmap_ptr, slice) = mmap_slice(fd, size)?;
 

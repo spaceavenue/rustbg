@@ -6,6 +6,7 @@ mod gamma;
 mod state;
 
 use state::{Config, State};
+use wllib::cli;
 use wllib::dispatch::dispatch_once;
 use wllib::error::WireError::ConnectionClosed;
 use wllib::io::write_stderr;
@@ -16,24 +17,69 @@ use wllib::wire::Message;
 
 use crate::error::AppError;
 
+unsafe extern "C" {
+  static optarg: *const libc::c_char;
+  static mut optind: libc::c_int;
+}
+#[link(name = "c", kind = "static")]
+unsafe extern "C" {}
+
+const LONGOPTS: [cli::LongOption; 2] = [
+  cli::LongOption::new(c"temp", cli::REQUIRED_ARGUMENT, 't'),
+  cli::LONG_OPTION_TERMINATOR,
+];
+
+const USAGE: &str = "Usage: rustemp -t <kelvin>\n";
+
+fn parse_f64(s: *const libc::c_char) -> Option<f64> {
+  if s.is_null() {
+    return None;
+  }
+  let mut end_ptr = core::ptr::null_mut();
+  let val = unsafe { libc::strtod(s, &raw mut end_ptr) };
+  if end_ptr == s as *mut libc::c_char {
+    None
+  } else {
+    Some(val)
+  }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn main(argc: isize, argv: *const *mut libc::c_char) -> libc::c_int {
   let mut config = Config::default();
-  if argc != 2 {
-    write_stderr("Usage: rustemp <temp>\n");
-    unsafe { libc::exit(1) };
+  let mut temp_set = false;
+  let optstring = c"t:".as_ptr();
+
+  let mut longindex: libc::c_int = 0;
+  unsafe { optind = 1 };
+  loop {
+    let c = unsafe {
+      cli::getopt_long(
+        argc as _,
+        argv,
+        optstring,
+        LONGOPTS.as_ptr(),
+        &raw mut longindex,
+      )
+    };
+    if c == -1 {
+      break;
+    }
+    match c as u8 as char {
+      't' => {
+        let Some(v) = parse_f64(unsafe { optarg }) else {
+          AppError::InvalidTemp.write_diagnostic();
+          unsafe { libc::exit(1) };
+        };
+        config.temp = v;
+        temp_set = true;
+      }
+      _ => (),
+    }
   }
 
-  let arg_ptr = unsafe { *argv.add(1) };
-  if arg_ptr.is_null() {
-    AppError::InvalidTemp.write_diagnostic();
-    unsafe { libc::exit(1) };
-  }
-  let mut end_ptr = core::ptr::null_mut();
-  config.temp = unsafe { libc::strtod(arg_ptr, &raw mut end_ptr) };
-
-  if end_ptr == arg_ptr {
-    AppError::InvalidTemp.write_diagnostic();
+  if !temp_set {
+    write_stderr(USAGE);
     unsafe { libc::exit(1) };
   }
 

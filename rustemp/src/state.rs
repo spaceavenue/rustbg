@@ -68,7 +68,7 @@ impl State {
     let size = read_u32(data, 0) as usize;
 
     // get the fd containing the scaled image data
-    let g_fd = match gamma::get_gamma_table_fd(size, config.temp) {
+    let g_fd = match gamma::get_gamma_table_fd(size, config) {
       Ok(fd) => fd,
       Err(e) => {
         e.write_diagnostic();
