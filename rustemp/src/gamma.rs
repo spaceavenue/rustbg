@@ -16,8 +16,48 @@ fn ln(x: f64) -> f64 {
   unsafe { log(x) }
 }
 
+fn create_memfd(size: usize) -> Result<i32, AppError> {
+  let size = size * 3 * 2;
+  let fd = unsafe { libc::memfd_create(c"rustemp-memfd".as_ptr(), libc::MFD_ALLOW_SEALING) };
+  if fd < 0 {
+    return Err(AppError::Sys(SysError::last("memfd_create")));
+  }
+
+  // gamma tables contain three ramps (R, G, B), each with `size` elements of 16-bit values (2
+  // bytes)
+  unsafe {
+    if libc::ftruncate(fd, size as libc::off_t) < 0 {
+      let err = SysError::last("ftruncate");
+      libc::close(fd);
+      return Err(AppError::Sys(err));
+    }
+  }
+  Ok(fd)
+}
+
+fn mmap_slice<'a>(fd: i32, size: usize) -> Result<(*mut libc::c_void, &'a mut [u16]), AppError> {
+  let ptr = unsafe {
+    libc::mmap(
+      core::ptr::null_mut(),
+      size * 3 * 2,
+      libc::PROT_WRITE,
+      libc::MAP_SHARED,
+      fd,
+      0,
+    )
+  };
+  if ptr == libc::MAP_FAILED {
+    let err = SysError::last("mmap");
+    unsafe { libc::close(fd) };
+    return Err(AppError::Sys(err));
+  }
+  let slice = unsafe { core::slice::from_raw_parts_mut(ptr.cast::<u16>(), size * 3) };
+
+  Ok((ptr, slice))
+}
+
 // convert temperature in kelvin to rgb data
-pub fn kelvin_to_rgb(kelvin: f64) -> (f64, f64, f64) {
+fn kelvin_to_rgb(kelvin: f64) -> (f64, f64, f64) {
   let kelvin = kelvin.clamp(1000.0, 40000.0);
   let temp = kelvin / 100.0;
 
@@ -50,41 +90,8 @@ pub fn kelvin_to_rgb(kelvin: f64) -> (f64, f64, f64) {
 
 pub fn get_gamma_table_fd(size: usize, temp_kelvin: f64) -> Result<i32, AppError> {
   let (r_factor, g_factor, b_factor) = kelvin_to_rgb(temp_kelvin);
-  let fd = unsafe { libc::memfd_create(c"rustemp-memfd".as_ptr(), libc::MFD_ALLOW_SEALING) };
-  if fd < 0 {
-    return Err(AppError::Sys(SysError::last("memfd_create")));
-  }
-
-  // gamma tables contain three ramps (R, G, B), each with `size` elements of 16-bit values (2
-  // bytes)
-  let fd_size = size * 3 * 2;
-  unsafe {
-    if libc::ftruncate(fd, fd_size as libc::off_t) < 0 {
-      let err = SysError::last("ftruncate");
-      libc::close(fd);
-      return Err(AppError::Sys(err));
-    }
-  }
-
-  // map the file to fill it
-  let ptr = unsafe {
-    libc::mmap(
-      core::ptr::null_mut(),
-      fd_size,
-      libc::PROT_WRITE,
-      libc::MAP_SHARED,
-      fd,
-      0,
-    )
-  };
-
-  if ptr == libc::MAP_FAILED {
-    let err = SysError::last("mmap");
-    unsafe { libc::close(fd) };
-    return Err(AppError::Sys(err));
-  }
-
-  let slice = unsafe { core::slice::from_raw_parts_mut(ptr.cast::<u16>(), size * 3) };
+  let fd = create_memfd(size)?;
+  let (mmap_ptr, slice) = mmap_slice(fd, size)?;
 
   // generate gamma curves scaled by the RGB color temperature factors
   for i in 0..size {
@@ -97,6 +104,6 @@ pub fn get_gamma_table_fd(size: usize, temp_kelvin: f64) -> Result<i32, AppError
     slice[2 * size + i] = (t * b_factor * 65535.0) as u16;
   }
 
-  unsafe { libc::munmap(ptr, fd_size) };
+  unsafe { libc::munmap(mmap_ptr, size * 3 * 2) };
   Ok(fd)
 }

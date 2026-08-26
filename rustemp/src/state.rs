@@ -26,9 +26,14 @@ pub struct Output {
 }
 
 // config
-#[derive(Default)]
 pub struct Config {
-  pub temp: Option<f64>,
+  pub temp: f64,
+}
+
+impl Default for Config {
+  fn default() -> Self {
+    Self { temp: 6500.0 }
+  }
 }
 
 pub struct State {
@@ -61,10 +66,9 @@ impl State {
       return;
     }
     let size = read_u32(data, 0) as usize;
-    let Some(temp) = config.temp else { return };
 
     // get the fd containing the scaled image data
-    let g_fd = match gamma::get_gamma_table_fd(size, temp) {
+    let g_fd = match gamma::get_gamma_table_fd(size, config.temp) {
       Ok(fd) => fd,
       Err(e) => {
         e.write_diagnostic();
