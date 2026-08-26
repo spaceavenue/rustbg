@@ -28,11 +28,27 @@ pub struct Output {
 // config
 pub struct Config {
   pub temp: f64,
+  // input levels: remaps [level_black, level_white] to [0, 1] before any other ramp op
+  pub level_black: f64,
+  pub level_white: f64,
+  // power-curve exponent. 1.0 is a no-op
+  pub gamma: f64,
+  // sigmoid contrast strength, roughly -1.0..1.0. 0.0 is a no-op
+  pub contrast: f64,
+  // final multiplicative scale, applied after contrast. 1.0 is a no-op
+  pub brightness: f64,
 }
 
 impl Default for Config {
   fn default() -> Self {
-    Self { temp: 6500.0 }
+    Self {
+      temp: 6500.0,
+      level_black: 0.0,
+      level_white: 1.0,
+      gamma: 1.0,
+      contrast: 0.0,
+      brightness: 1.0,
+    }
   }
 }
 

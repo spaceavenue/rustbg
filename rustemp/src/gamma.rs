@@ -7,6 +7,7 @@ use crate::state::Config;
 unsafe extern "C" {
   fn pow(base: f64, exponent: f64) -> f64;
   fn log(x: f64) -> f64;
+  fn exp(x: f64) -> f64;
 }
 
 fn powf(base: f64, exponent: f64) -> f64 {
@@ -15,6 +16,10 @@ fn powf(base: f64, exponent: f64) -> f64 {
 
 fn ln(x: f64) -> f64 {
   unsafe { log(x) }
+}
+
+fn expf(x: f64) -> f64 {
+  unsafe { exp(x) }
 }
 
 fn create_memfd(size: usize) -> Result<i32, AppError> {
@@ -89,6 +94,46 @@ fn kelvin_to_rgb(kelvin: f64) -> (f64, f64, f64) {
   (r, g, b)
 }
 
+// input levels: remaps [black, white] to [0, 1], clamping outside that range. `black == white`
+// is treated as a no-op rather than dividing by zero.
+fn apply_levels(t: f64, black: f64, white: f64) -> f64 {
+  if (white - black).abs() < f64::EPSILON {
+    return t;
+  }
+  ((t - black) / (white - black)).clamp(0.0, 1.0)
+}
+
+// power-curve response: `t ^ (1/exp)`. `exp == 1.0` is a no-op.
+fn apply_gamma(t: f64, exp: f64) -> f64 {
+  if (exp - 1.0).abs() < f64::EPSILON {
+    return t;
+  }
+  powf(t.max(0.0), 1.0 / exp)
+}
+
+// sigmoid contrast: pushes values away from (amount > 0) or toward (amount < 0) the midpoint,
+// renormalized so the full [0, 1] input range still maps onto [0, 1]. `amount == 0.0` is a no-op
+// (the sigmoid would otherwise be flat, making the renormalization divide by ~0).
+fn apply_contrast(t: f64, amount: f64) -> f64 {
+  if amount.abs() < 1e-9 {
+    return t;
+  }
+  let k = amount * 10.0;
+  let sig = |x: f64| 1.0 / (1.0 + expf(-k * (x - 0.5)));
+  let s0 = sig(0.0);
+  let s1 = sig(1.0);
+  ((sig(t) - s0) / (s1 - s0)).clamp(0.0, 1.0)
+}
+
+// runs one channel's normalized input `t` (0..1) through the full ramp-op pipeline.
+fn compute_channel_value(t: f64, gain: f64, config: &Config) -> f64 {
+  let v = apply_levels(t, config.level_black, config.level_white);
+  let v = apply_gamma(v, config.gamma);
+  let v = (v * gain).clamp(0.0, 1.0);
+  let v = apply_contrast(v, config.contrast);
+  (v * config.brightness).clamp(0.0, 1.0)
+}
+
 pub fn get_gamma_table_fd(size: usize, config: &Config) -> Result<i32, AppError> {
   let (r_factor, g_factor, b_factor) = kelvin_to_rgb(config.temp);
   let fd = create_memfd(size)?;
@@ -98,11 +143,11 @@ pub fn get_gamma_table_fd(size: usize, config: &Config) -> Result<i32, AppError>
   for i in 0..size {
     let t = i as f64 / (size.saturating_sub(1).max(1)) as f64;
     // red
-    slice[i] = (t * r_factor * 65535.0) as u16;
+    slice[i] = (compute_channel_value(t, r_factor, config) * 65535.0) as u16;
     // greerg
-    slice[size + i] = (t * g_factor * 65535.0) as u16;
+    slice[size + i] = (compute_channel_value(t, g_factor, config) * 65535.0) as u16;
     // blue
-    slice[2 * size + i] = (t * b_factor * 65535.0) as u16;
+    slice[2 * size + i] = (compute_channel_value(t, b_factor, config) * 65535.0) as u16;
   }
 
   unsafe { libc::munmap(mmap_ptr, size * 3 * 2) };

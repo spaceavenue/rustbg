@@ -24,12 +24,22 @@ unsafe extern "C" {
 #[link(name = "c", kind = "static")]
 unsafe extern "C" {}
 
-const LONGOPTS: [cli::LongOption; 2] = [
+const LONGOPTS: [cli::LongOption; 7] = [
   cli::LongOption::new(c"temp", cli::REQUIRED_ARGUMENT, 't'),
+  cli::LongOption::new(c"black", cli::REQUIRED_ARGUMENT, 'k'),
+  cli::LongOption::new(c"white", cli::REQUIRED_ARGUMENT, 'w'),
+  cli::LongOption::new(c"gamma", cli::REQUIRED_ARGUMENT, 'g'),
+  cli::LongOption::new(c"contrast", cli::REQUIRED_ARGUMENT, 'c'),
+  cli::LongOption::new(c"brightness", cli::REQUIRED_ARGUMENT, 'b'),
   cli::LONG_OPTION_TERMINATOR,
 ];
 
-const USAGE: &str = "Usage: rustemp -t <kelvin>\n";
+const USAGE: &str = "Usage: rustemp -t <kelvin> [--black <0..1>] [--white <0..1>]\n";
+
+fn bad_value() -> ! {
+  write_stderr("rustemp: invalid numeric value\n");
+  unsafe { libc::exit(1) };
+}
 
 fn parse_f64(s: *const libc::c_char) -> Option<f64> {
   if s.is_null() {
@@ -48,7 +58,7 @@ fn parse_f64(s: *const libc::c_char) -> Option<f64> {
 pub unsafe extern "C" fn main(argc: isize, argv: *const *mut libc::c_char) -> libc::c_int {
   let mut config = Config::default();
   let mut temp_set = false;
-  let optstring = c"t:".as_ptr();
+  let optstring = c"t:k:w:g:c:b:".as_ptr();
 
   let mut longindex: libc::c_int = 0;
   unsafe { optind = 1 };
@@ -74,6 +84,11 @@ pub unsafe extern "C" fn main(argc: isize, argv: *const *mut libc::c_char) -> li
         config.temp = v;
         temp_set = true;
       }
+      'k' => config.level_black = parse_f64(unsafe { optarg }).unwrap_or_else(|| bad_value()),
+      'w' => config.level_white = parse_f64(unsafe { optarg }).unwrap_or_else(|| bad_value()),
+      'g' => config.gamma = parse_f64(unsafe { optarg }).unwrap_or_else(|| bad_value()),
+      'c' => config.contrast = parse_f64(unsafe { optarg }).unwrap_or_else(|| bad_value()),
+      'b' => config.brightness = parse_f64(unsafe { optarg }).unwrap_or_else(|| bad_value()),
       _ => (),
     }
   }
