@@ -24,13 +24,20 @@ unsafe extern "C" {
 #[link(name = "c", kind = "static")]
 unsafe extern "C" {}
 
-const LONGOPTS: [cli::LongOption; 7] = [
+const LONGOPTS: [cli::LongOption; 14] = [
   cli::LongOption::new(c"temp", cli::REQUIRED_ARGUMENT, 't'),
   cli::LongOption::new(c"black", cli::REQUIRED_ARGUMENT, 'k'),
   cli::LongOption::new(c"white", cli::REQUIRED_ARGUMENT, 'w'),
   cli::LongOption::new(c"gamma", cli::REQUIRED_ARGUMENT, 'g'),
+  cli::LongOption::new(c"gain", cli::REQUIRED_ARGUMENT, 'G'),
+  cli::LongOption::new(c"offset", cli::REQUIRED_ARGUMENT, 'O'),
   cli::LongOption::new(c"contrast", cli::REQUIRED_ARGUMENT, 'c'),
   cli::LongOption::new(c"brightness", cli::REQUIRED_ARGUMENT, 'b'),
+  cli::LongOption::new(c"posterize", cli::REQUIRED_ARGUMENT, 'p'),
+  cli::LongOption::new(c"invert", cli::NO_ARGUMENT, 'i'),
+  cli::LongOption::new(c"no-red", cli::NO_ARGUMENT, 'x'),
+  cli::LongOption::new(c"no-green", cli::NO_ARGUMENT, 'y'),
+  cli::LongOption::new(c"no-blue", cli::NO_ARGUMENT, 'z'),
   cli::LONG_OPTION_TERMINATOR,
 ];
 
@@ -54,11 +61,37 @@ fn parse_f64(s: *const libc::c_char) -> Option<f64> {
   }
 }
 
+// parses a "<r>:<g>:<b>" string, e.g. a --gain/--offset argument.
+fn parse_triplet(s: *const libc::c_char) -> Option<(f64, f64, f64)> {
+  if s.is_null() {
+    return None;
+  }
+  let text = unsafe { core::ffi::CStr::from_ptr(s) }.to_str().ok()?;
+  let mut parts = text.splitn(3, ':');
+  let r = parts.next()?.parse::<f64>().ok()?;
+  let g = parts.next()?.parse::<f64>().ok()?;
+  let b = parts.next()?.parse::<f64>().ok()?;
+  Some((r, g, b))
+}
+
+fn parse_u32(s: *const libc::c_char) -> Option<u32> {
+  if s.is_null() {
+    return None;
+  }
+  let mut end_ptr = core::ptr::null_mut();
+  let val = unsafe { libc::strtoul(s, &raw mut end_ptr, 10) };
+  if end_ptr == s as *mut libc::c_char {
+    None
+  } else {
+    u32::try_from(val).ok()
+  }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn main(argc: isize, argv: *const *mut libc::c_char) -> libc::c_int {
   let mut config = Config::default();
   let mut temp_set = false;
-  let optstring = c"t:k:w:g:c:b:".as_ptr();
+  let optstring = c"t:k:w:g:G:O:c:b:p:ixyz".as_ptr();
 
   let mut longindex: libc::c_int = 0;
   unsafe { optind = 1 };
@@ -87,8 +120,21 @@ pub unsafe extern "C" fn main(argc: isize, argv: *const *mut libc::c_char) -> li
       'k' => config.level_black = parse_f64(unsafe { optarg }).unwrap_or_else(|| bad_value()),
       'w' => config.level_white = parse_f64(unsafe { optarg }).unwrap_or_else(|| bad_value()),
       'g' => config.gamma = parse_f64(unsafe { optarg }).unwrap_or_else(|| bad_value()),
+      'G' => {
+        let (r, g, b) = parse_triplet(unsafe { optarg }).unwrap_or_else(|| bad_value());
+        (config.gain_r, config.gain_g, config.gain_b) = (r, g, b);
+      }
+      'O' => {
+        let (r, g, b) = parse_triplet(unsafe { optarg }).unwrap_or_else(|| bad_value());
+        (config.offset_r, config.offset_g, config.offset_b) = (r, g, b);
+      }
       'c' => config.contrast = parse_f64(unsafe { optarg }).unwrap_or_else(|| bad_value()),
       'b' => config.brightness = parse_f64(unsafe { optarg }).unwrap_or_else(|| bad_value()),
+      'p' => config.posterize_levels = parse_u32(unsafe { optarg }).unwrap_or_else(|| bad_value()),
+      'i' => config.invert = true,
+      'x' => config.disable_r = true,
+      'y' => config.disable_g = true,
+      'z' => config.disable_b = true,
       _ => (),
     }
   }

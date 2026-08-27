@@ -8,6 +8,7 @@ unsafe extern "C" {
   fn pow(base: f64, exponent: f64) -> f64;
   fn log(x: f64) -> f64;
   fn exp(x: f64) -> f64;
+  fn round(x: f64) -> f64;
 }
 
 fn powf(base: f64, exponent: f64) -> f64 {
@@ -20,6 +21,10 @@ fn ln(x: f64) -> f64 {
 
 fn expf(x: f64) -> f64 {
   unsafe { exp(x) }
+}
+
+fn roundf(x: f64) -> f64 {
+  unsafe { round(x) }
 }
 
 fn create_memfd(size: usize) -> Result<i32, AppError> {
@@ -125,13 +130,26 @@ fn apply_contrast(t: f64, amount: f64) -> f64 {
   ((sig(t) - s0) / (s1 - s0)).clamp(0.0, 1.0)
 }
 
-// runs one channel's normalized input `t` (0..1) through the full ramp-op pipeline.
-fn compute_channel_value(t: f64, gain: f64, config: &Config) -> f64 {
+fn apply_posterize(t: f64, levels: u32) -> f64 {
+  if levels < 2 {
+    return t;
+  }
+
+  let steps = f64::from(levels - 1);
+  roundf(t * steps) / steps
+}
+
+// runs one channel's normalized input `t` (0..1) through the full ramp-op pipeline. `gain` is
+// that channel's color-temperature factor multiplied by its manual gain knob, `offset` is its
+// manual offset knob.
+fn compute_channel_value(t: f64, gain: f64, offset: f64, config: &Config) -> f64 {
   let v = apply_levels(t, config.level_black, config.level_white);
   let v = apply_gamma(v, config.gamma);
-  let v = (v * gain).clamp(0.0, 1.0);
+  let v = (v * gain + offset).clamp(0.0, 1.0);
   let v = apply_contrast(v, config.contrast);
-  (v * config.brightness).clamp(0.0, 1.0)
+  let v = (v * config.brightness).clamp(0.0, 1.0);
+  let v = apply_posterize(v, config.posterize_levels);
+  if config.invert { 1.0 - v } else { v }
 }
 
 pub fn get_gamma_table_fd(size: usize, config: &Config) -> Result<i32, AppError> {
@@ -143,11 +161,20 @@ pub fn get_gamma_table_fd(size: usize, config: &Config) -> Result<i32, AppError>
   for i in 0..size {
     let t = i as f64 / (size.saturating_sub(1).max(1)) as f64;
     // red
-    slice[i] = (compute_channel_value(t, r_factor, config) * 65535.0) as u16;
+    let r = config.disable_r.then_some(0.0).unwrap_or_else(|| {
+      compute_channel_value(t, r_factor * config.gain_r, config.offset_r, config)
+    });
+    slice[i] = (r * 65535.0) as u16;
     // greerg
-    slice[size + i] = (compute_channel_value(t, g_factor, config) * 65535.0) as u16;
+    let g = config.disable_g.then_some(0.0).unwrap_or_else(|| {
+      compute_channel_value(t, g_factor * config.gain_g, config.offset_g, config)
+    });
+    slice[size + i] = (g * 65535.0) as u16;
     // blue
-    slice[2 * size + i] = (compute_channel_value(t, b_factor, config) * 65535.0) as u16;
+    let b = config.disable_b.then_some(0.0).unwrap_or_else(|| {
+      compute_channel_value(t, b_factor * config.gain_b, config.offset_b, config)
+    });
+    slice[2 * size + i] = (b * 65535.0) as u16;
   }
 
   unsafe { libc::munmap(mmap_ptr, size * 3 * 2) };

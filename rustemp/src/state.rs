@@ -33,10 +33,27 @@ pub struct Config {
   pub level_white: f64,
   // power-curve exponent. 1.0 is a no-op
   pub gamma: f64,
+  // per-channel gain (multiplicative) and offset (additive), applied after the color-temperature
+  // factor. also doubles as a manual per-channel black/white point:
+  // (gain = 1/(white-black), offset = -black*gain is the same affine transform)
+  pub gain_r: f64,
+  pub gain_g: f64,
+  pub gain_b: f64,
+  pub offset_r: f64,
+  pub offset_g: f64,
+  pub offset_b: f64,
   // sigmoid contrast strength, roughly -1.0..1.0. 0.0 is a no-op
   pub contrast: f64,
   // final multiplicative scale, applied after contrast. 1.0 is a no-op
   pub brightness: f64,
+  // quantizes to this many discrete output levels. < 2 disables it
+  pub posterize_levels: u32,
+  // full inversion
+  pub invert: bool,
+  // zeros out an entire channel's ramp, bypassing the rest of the pipeline for that channel
+  pub disable_r: bool,
+  pub disable_g: bool,
+  pub disable_b: bool,
 }
 
 impl Default for Config {
@@ -48,6 +65,17 @@ impl Default for Config {
       gamma: 1.0,
       contrast: 0.0,
       brightness: 1.0,
+      gain_r: 1.0,
+      gain_g: 1.0,
+      gain_b: 1.0,
+      offset_r: 0.0,
+      offset_g: 0.0,
+      offset_b: 0.0,
+      posterize_levels: 0,
+      invert: false,
+      disable_r: false,
+      disable_g: false,
+      disable_b: false,
     }
   }
 }
@@ -58,6 +86,7 @@ pub struct State {
   pub output_len: usize,
   pub config: Config,
 }
+
 impl State {
   pub fn init(config: Config) -> Self {
     Self {
@@ -100,6 +129,7 @@ impl State {
     unsafe { libc::close(g_fd) };
   }
 }
+
 impl GlobalHandler for State {
   // bind globals matching interfaces we want. we bind to the minimum of the client's wanted
   // version and the server's advertised version
@@ -140,6 +170,7 @@ impl GlobalHandler for State {
     }
   }
 }
+
 impl EventHandler for State {
   fn handle_event(&mut self, conn: &mut Connection, sender: u32, opcode: u16, data: &[u8]) {
     self.outputs.iter().for_each(|out| {
