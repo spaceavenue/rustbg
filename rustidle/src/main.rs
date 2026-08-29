@@ -27,16 +27,23 @@ extern "C" fn handle_sigusr1(_sig: libc::c_int) {
   IS_SUSPENDED.fetch_xor(true, core::sync::atomic::Ordering::Relaxed);
 }
 
+fn write_usage() -> ! {
+  write_stderr("Usage: rustidle <config-file>\n");
+  unsafe { libc::exit(1) };
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn main(argc: isize, argv: *const *mut libc::c_char) -> libc::c_int {
   if argc != 2 {
-    write_stderr("Usage: rustidle <config-file>\n");
-    unsafe { libc::exit(1) };
+    write_usage()
   }
   let config_path = unsafe { *argv.add(1) };
   if config_path.is_null() {
-    write_stderr("Usage: rustidle <config-file>\n");
-    unsafe { libc::exit(1) };
+    write_usage()
+  }
+  if unsafe { libc::access(config_path, libc::F_OK) != 0 } {
+    write_stderr("[rustidle] failed to open config file.\n");
+    return 1;
   }
 
   // tells kernel to reap child processes automatically, avoiding watipid

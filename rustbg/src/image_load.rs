@@ -90,7 +90,7 @@ fn run_ffmpeg(
   out_height: u32,
   buffer: &mut [u8],
   fill: bool,
-  path: *const libc::c_char,
+  path: StringOnStack<256>,
 ) -> Result<(), AppError> {
   let mut filter = StringOnStack::<96>::new();
 
@@ -122,9 +122,9 @@ fn run_ffmpeg(
   let argv: [*const libc::c_char; 11] = [
     c"ffmpeg".as_ptr(),
     c"-i".as_ptr(),
-    path,
+    path.as_ptr(),
     c"-vf".as_ptr(),
-    filter.as_ptr() as _,
+    filter.as_ptr(),
     c"-f".as_ptr(),
     c"rawvideo".as_ptr(),
     c"-pix_fmt".as_ptr(),
@@ -141,7 +141,7 @@ fn run_dump_bgra(
   out_height: u32,
   buffer: &mut [u8],
   fill: bool,
-  path: *const libc::c_char,
+  path: StringOnStack<256>,
 ) -> Result<(), AppError> {
   let mut w_str = StringOnStack::<10>::new();
   w_str.push(out_width);
@@ -153,17 +153,14 @@ fn run_dump_bgra(
   } else {
     mode_str.push("fit");
   }
-  // w_str.null_terminate();
-  // h_str.null_terminate();
-  // mode_str.null_terminate();
 
   // build dump-bgra argument vector: scale image to raw bgra pixels and stream to stdout
   let argv: [*const libc::c_char; 7] = [
     c"dump-bgra".as_ptr(),
-    w_str.as_ptr().cast(),
-    h_str.as_ptr().cast(),
-    mode_str.as_ptr().cast(),
-    path,
+    w_str.as_ptr(),
+    h_str.as_ptr(),
+    mode_str.as_ptr(),
+    path.as_ptr(),
     c"-".as_ptr(),
     core::ptr::null(),
   ];
@@ -176,17 +173,16 @@ pub fn load_and_scale(
   buffer: &mut [u8],
   config: &Config,
 ) -> Result<(), AppError> {
-  let Some(path) = config.image_path else {
-    return Err(AppError::MissingImagePath);
-  };
+  let path = config.image_path;
+  let fill = config.fill;
 
   #[cfg(not(feature = "ffmpeg"))]
   {
-    run_dump_bgra(out_width, out_height, buffer, config.fill, path)
+    run_dump_bgra(out_width, out_height, buffer, fill, path)
   }
 
   #[cfg(feature = "ffmpeg")]
   {
-    run_ffmpeg(out_width, out_height, buffer, config.fill, path)
+    run_ffmpeg(out_width, out_height, buffer, fill, path)
   }
 }

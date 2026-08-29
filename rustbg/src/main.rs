@@ -30,6 +30,11 @@ const LONGOPTS: [cli::LongOption; 3] = [
   cli::LONG_OPTION_TERMINATOR,
 ];
 
+fn write_usage() -> ! {
+  write_stderr("Usage: rustbg [-f | --fill] [-n | --namespace <name>] <image path>\n");
+  unsafe { libc::exit(1) }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn main(argc: isize, argv: *const *mut libc::c_char) -> libc::c_int {
   let mut config = Config::default();
@@ -54,21 +59,38 @@ pub unsafe extern "C" fn main(argc: isize, argv: *const *mut libc::c_char) -> li
       'f' => config.fill = true,
       'n' => {
         if unsafe { optarg.is_null() } {
-          break;
+          write_stderr("[rustbg] no namespace provided.");
+          write_usage();
         }
-        config.namespace = unsafe { optarg }
+        let cstr = unsafe { core::ffi::CStr::from_ptr(optarg) };
+        config.namespace.clear();
+        config.namespace.push_cstr(cstr);
       }
-      _ => (),
+      _ => write_usage(),
     }
   }
+
   let optind_val = unsafe { optind };
-  if optind_val < argc as libc::c_int {
-    config.image_path = Some(unsafe { *argv.add((optind_val) as usize) });
+  if optind_val < 0 || optind_val >= argc as libc::c_int {
+    write_stderr("[rustbg] no image path supplied\n");
+    write_usage();
+  }
+  let raw_arg = unsafe { *argv.add(optind_val as usize) };
+  if raw_arg.is_null() {
+    write_stderr("[rustbg] no image path supplied\n");
+    write_usage()
+  }
+  let cstr = unsafe { core::ffi::CStr::from_ptr(raw_arg) };
+  config.image_path.push_cstr(cstr);
+
+  if config.image_path.is_empty() {
+    write_stderr("[rustbg] no image path supplied\n");
+    write_usage()
   }
 
-  if config.image_path.is_none() {
-    write_stderr("Usage: rustbg [-f | --fill] [-n | --namespace <name>] <image path>\n");
-    unsafe { libc::exit(1) };
+  if unsafe { libc::access(config.image_path.as_ptr(), libc::F_OK) != 0 } {
+    write_stderr("[rustbg] cannot open image file.\n");
+    write_usage()
   }
 
   let mut conn = match Connection::connect() {
@@ -88,8 +110,7 @@ pub unsafe extern "C" fn main(argc: isize, argv: *const *mut libc::c_char) -> li
 
   // setup layer surfaces and gamma control for all monitors.
   for i in 0..state.output_len {
-    // alloc ids for the new wl_surface (from compositor), layer surface, and gamma control
-    // objects.
+    // alloc ids for the new wl_surface (from compositor) and layer surface.
     let surf_id = conn.alloc_id();
     let layer_surf_id = conn.alloc_id();
     let output_id = state.outputs[i].output_id;
@@ -113,7 +134,7 @@ pub unsafe extern "C" fn main(argc: isize, argv: *const *mut libc::c_char) -> li
     ls_msg.write_u32(surf_id);
     ls_msg.write_u32(output_id);
     ls_msg.write_u32(zwlr_layer_shell_v1::layer::BACKGROUND);
-    ls_msg.write_cstr(unsafe { core::ffi::CStr::from_ptr(state.config.namespace) });
+    ls_msg.write_cstr(state.config.namespace.as_c_str());
     conn.send_logged(&ls_msg, None);
 
     // anchor to all edges for full screen

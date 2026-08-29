@@ -12,8 +12,6 @@ pub enum AppError {
   Sys(SysError),
   // dump-bgra/ffmpeg produced fewer bytes than the expected `width * height * 4`.
   ImageDecodeError,
-  // Attempted an operation that needs `config.image_path` before one was set.
-  MissingImagePath,
 }
 
 impl AppError {
@@ -22,14 +20,13 @@ impl AppError {
       AppError::Wire(e) => e.write_diagnostic(),
       AppError::Sys(e) => WireError::Sys(*e).write_diagnostic(),
       #[cfg(feature = "ffmpeg")]
-      AppError::ImageDecodeError => io::write_stderr(
-        "[rustbg] image decode error: ffmpeg produced fewer bytes than expected\n",
-      ),
+      AppError::ImageDecodeError => {
+        io::write_stderr("[rustbg] image decode error: ffmpeg produced fewer bytes than expected\n")
+      }
       #[cfg(not(feature = "ffmpeg"))]
       AppError::ImageDecodeError => io::write_stderr(
         "[rustbg] image decode error: dump-bgra produced fewer bytes than expected\n",
       ),
-      AppError::MissingImagePath => io::write_stderr("[rustbg] no image path configured\n"),
     }
   }
 }

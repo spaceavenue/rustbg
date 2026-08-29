@@ -15,8 +15,6 @@ use wllib::registry::crawl;
 use wllib::transport::Connection;
 use wllib::wire::Message;
 
-use crate::error::AppError;
-
 unsafe extern "C" {
   static optarg: *const libc::c_char;
   static mut optind: libc::c_int;
@@ -55,7 +53,7 @@ const USAGE: &str = concat!(
 );
 
 fn bad_value() -> ! {
-  write_stderr("rustemp: invalid numeric value\n");
+  write_stderr("rustemp: invalid or no value supplied\n");
   unsafe { libc::exit(1) };
 }
 
@@ -121,11 +119,7 @@ pub unsafe extern "C" fn main(argc: isize, argv: *const *mut libc::c_char) -> li
     }
     match c as u8 as char {
       't' => {
-        let Some(v) = parse_f64(unsafe { optarg }) else {
-          AppError::InvalidTemp.write_diagnostic();
-          unsafe { libc::exit(1) };
-        };
-        config.temp = v;
+        config.temp = parse_f64(unsafe { optarg }).unwrap_or_else(|| bad_value());
         temp_set = true;
       }
       'k' => config.level_black = parse_f64(unsafe { optarg }).unwrap_or_else(|| bad_value()),

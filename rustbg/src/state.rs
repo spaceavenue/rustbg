@@ -1,4 +1,5 @@
 use wllib::dispatch::EventHandler;
+use wllib::fmt_lite::StringOnStack;
 use wllib::io::write_stderr;
 use wllib::protocols::{wl_shm, wl_shm_pool, wl_surface, zwlr_layer_surface_v1};
 use wllib::registry::{GlobalHandler, bind, clamp_version};
@@ -32,16 +33,16 @@ pub struct Output {
 
 // config
 pub struct Config {
-  pub image_path: Option<*const libc::c_char>,
-  pub namespace: *const libc::c_char,
+  pub image_path: StringOnStack<256>,
+  pub namespace: StringOnStack<256>,
   pub fill: bool,
 }
 // default config
 impl Default for Config {
   fn default() -> Self {
     Self {
-      image_path: Some(c"image.png".as_ptr().cast::<libc::c_char>()),
-      namespace: c"wallpaper".as_ptr().cast::<libc::c_char>(),
+      image_path: StringOnStack::new(),
+      namespace: *StringOnStack::new().push_str("wallpaper"),
       fill: false,
     }
   }

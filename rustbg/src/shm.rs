@@ -11,9 +11,9 @@ use crate::state::Config;
 // as a byte slice to our image loading function. we then unmap it and send the fd back. the wayland
 // side turns it into a buffer
 pub fn get_image_fd(out_width: u32, out_height: u32, config: &Config) -> Result<i32, AppError> {
-  if config.image_path.is_none() {
-    return Err(AppError::MissingImagePath);
-  }
+  // if config.image_path.is_none() {
+  //   return Err(AppError::MissingImagePath);
+  // }
   let stride = out_width * 4; // 4 bytes per pixel (BGRA)
   let size = (stride * out_height) as usize;
 
