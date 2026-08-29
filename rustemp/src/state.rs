@@ -48,6 +48,8 @@ pub struct Config {
   pub brightness: f64,
   // quantizes to this many discrete output levels. < 2 disables it
   pub posterize_levels: u32,
+  // inverts values above the threshold, applied after posterize. 1.0 is a no-op
+  pub solarize_value: f64,
   // full inversion
   pub invert: bool,
   // zeros out an entire channel's ramp, bypassing the rest of the pipeline for that channel
@@ -72,6 +74,7 @@ impl Default for Config {
       offset_g: 0.0,
       offset_b: 0.0,
       posterize_levels: 0,
+      solarize_value: 1.0,
       invert: false,
       disable_r: false,
       disable_g: false,

@@ -149,6 +149,7 @@ fn compute_channel_value(t: f64, gain: f64, offset: f64, config: &Config) -> f64
   let v = apply_contrast(v, config.contrast);
   let v = (v * config.brightness).clamp(0.0, 1.0);
   let v = apply_posterize(v, config.posterize_levels);
+  let v = (v > config.solarize_value).then_some(1.0 - v).unwrap_or(v);
   if config.invert { 1.0 - v } else { v }
 }
 
